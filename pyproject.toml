@@ -1,0 +1,14 @@
+[project]
+name = "Parser_for_velo1000.ru"
+version = "1.0.0"
+description = "Парсер товаров с сайта https://velo1000.ru"
+requires-python = ">=3.13"
+dependencies = [
+    "selenium>=4.32.0",
+    "SQLAlchemy==2.0.41",
+    "typing_extensions==4.13.2"
+]
+
+[build-system]
+requires = ["setuptools>=61.0.0"]
+build-backend = "setuptools.build_meta"
