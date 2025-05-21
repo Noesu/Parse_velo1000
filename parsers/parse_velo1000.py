@@ -1,8 +1,8 @@
+import bs4
 from bs4 import BeautifulSoup
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webdriver import WebDriver
-from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.wait import WebDriverWait
 from sqlalchemy.orm import Session
@@ -66,7 +66,7 @@ class Coordinator:
         if self.category_parser.pagination_exists():
             self.category_parser.expand_category()
 
-        products_data = self.category_parser.parse_category(category_name, url)
+        products_data = self.category_parser.parse_category(category_name)
         self._save_products_to_db(category_name, products_data)
 
 
@@ -114,7 +114,7 @@ class CategoryParser:
             return True
 
         except TimeoutException:
-            print(f'Pagination not detected')
+            print(f'({time.strftime("%H:%M:%S")}) Pagination not detected')
             return False
 
     def expand_category(self) -> None:
@@ -132,22 +132,23 @@ class CategoryParser:
             print(f'({time.strftime("%H:%M:%S")}) Error during expanding category: {str(e)}')
 
 
-    def parse_category(self, name: str, url: str) -> list[dict]:
+    def parse_category(self, name: str) -> list[dict]:
         print(f'({time.strftime("%H:%M:%S")}) Parsing category {name}...')
         try:
             print(f'({time.strftime("%H:%M:%S")}) Start loading products')
-            products = self.product_parser.get_products_list()
-            print(f'({time.strftime("%H:%M:%S")}) Loaded {len(products)} products in category')
-            return self._process_products(products)
+            page_html = self.product_parser.get_page_html()
+            return self._process_products(page_html)
         except TimeoutException:
-            print(f"Timeout loading products in {name}")
+            print(f"({time.strftime("%H:%M:%S")}) Timeout loading products in {name}")
             return []
 
-    def _process_products(self, products: list[WebElement]) -> list[dict]:
+    def _process_products(self, page_html: str) -> list[dict]:
+        soup = BeautifulSoup(page_html, 'lxml')
+        products = soup.select('.product__block')
         result = []
-        for product in products:
-            if product_data := self.product_parser.parse_product(product):
-                result.append(product_data)
+        for product_block in products:
+            if product_data_dict := self.product_parser.parse_product(product_block):
+                result.append(product_data_dict)
         return result
 
 
@@ -156,55 +157,51 @@ class ProductParser:
         self.driver = driver
 
     @staticmethod
-    def _extract_product_name(product: WebElement) -> str:
-        try:
-            return product.find_element(By.CLASS_NAME, "product__label").text
-        except NoSuchElementException:
-            print(f"({time.strftime("%H:%M:%S")}) Product name element not found")
-            return ""
-        except Exception as e:
-            print(f"({time.strftime("%H:%M:%S")}) Unexpected error extracting name: {str(e)}")
-            return ""
+    def _extract_product_name(product_block: bs4.Tag) -> str:
+        # print(f'Product_tag: {product_tag}')
+        if product_label := product_block.select_one('.product__label'):
+            return product_label.get_text(strip=True)
+        print(f"({time.strftime("%H:%M:%S")}) Product name element not found")
+        return ""
 
-    def _extract_product_price(self, product: WebElement) -> Optional[int]:
-        try:
-            price_text = product.find_element(By.CLASS_NAME, "product__price").text
-            return self._text_price_to_kopecks(price_text)
-        except NoSuchElementException:
-            print(f"({time.strftime("%H:%M:%S")}) Product price element not found")
-            return None
-        except Exception as e:
-            print(f"({time.strftime("%H:%M:%S")}) Unexpected error extracting price: {str(e)}")
-            return None
+    def _extract_product_price(self, product_block: bs4.Tag) -> Optional[int]:
+        if product_price := product_block.select_one('.product__price'):
+            for child in product_price.children:
+                if child.name == 'div' and 'line-through' not in child.get('style', ''):
+                    return self._text_price_to_kopecks(child.get_text(strip=True))
+            if price_text := product_price.get_text(strip=True):
+                return self._text_price_to_kopecks(price_text)
+        print(f"({time.strftime("%H:%M:%S")}) Product price element not found")
+        return None
 
     @staticmethod
     def _text_price_to_kopecks(price_text: str) -> Optional[int]:
-        try:
-            digits = ''.join(symbol for symbol in price_text if symbol.isdigit())
-            if not digits:
+        if digits := ''.join(symbol for symbol in price_text if symbol.isdigit()):
+            try:
+                price_kopecks = int(digits) * 100
+                return price_kopecks
+            except ValueError as e:
+                print(f'({time.strftime("%H:%M:%S")}) Error converting price {price_text}: {e}')
                 return None
-            price_kopecks = int(digits) * 100
-            return price_kopecks
-        except Exception as e:
-            print(f'Error converting price {price_text}: {e}')
-            return None
+        return None
 
-
-    def get_products_list(self) -> list[WebElement]:
-        return WebDriverWait(self.driver, 60).until(
+    def get_page_html(self) -> str:
+        WebDriverWait(self.driver, 60).until(
             EC.presence_of_all_elements_located((By.CLASS_NAME, "product__block"))
         )
+        return self.driver.page_source
 
-    def parse_product(self, product: WebElement) -> Optional[dict]:
-        product_data = {}
+    def parse_product(self, product_block: bs4.Tag) -> Optional[dict]:
+        # print(product_tag)
+        # raise SystemExit
+        product_data_dict = {}
         try:
-            product_data["name"] = self._extract_product_name(product)
-            if not product_data["name"]:
+            product_data_dict["name"] = self._extract_product_name(product_block)
+            if not product_data_dict["name"]:
                 return None
-            product_data["price"] = self._extract_product_price(product)
-            print(product_data)
-            return product_data
+            product_data_dict["price"] = self._extract_product_price(product_block)
+            return product_data_dict
         except Exception as e:
-            print(f"Failed to parse product: {str(e)}")
+            print(f"({time.strftime("%H:%M:%S")}) Failed to parse product: {str(e)}")
             return {}
 

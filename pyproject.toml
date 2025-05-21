@@ -1,9 +1,11 @@
 [project]
 name = "Parser_for_velo1000.ru"
-version = "1.0.0"
+version = "1.0.1"
 description = "Парсер товаров с сайта https://velo1000.ru"
 requires-python = ">=3.13"
 dependencies = [
+    "beautifulsoup4==4.13.4",
+    "lxml==5.4.0",
     "selenium>=4.32.0",
     "SQLAlchemy==2.0.41",
     "typing_extensions==4.13.2"

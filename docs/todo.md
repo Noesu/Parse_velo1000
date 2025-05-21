@@ -1,8 +1,5 @@
 # TODO List  
 
-## High Priority  
-- [ ] Fix price parsing bug (discounted/regular prices merging)  
-
 ## Medium Priority  
 - [ ] Improve parsing performance:
   - Option 1: Implement multithreading  
@@ -13,4 +10,4 @@
 - [ ] Add progress visualization (progress bars)  
 - [ ] Implement proper logging system to replace print() statements  
 
-*Last updated: 2025-05-19*   
+*Last updated: 2025-05-21*   
