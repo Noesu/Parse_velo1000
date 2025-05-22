@@ -4,7 +4,7 @@ from sqlalchemy.orm import sessionmaker
 from db.models import Base
 
 def init_db(db_url='sqlite:///products.db') -> sessionmaker:
-    engine = create_engine(db_url, echo=True)
+    engine = create_engine(db_url, echo=False)
     Base.metadata.create_all(engine)
     return sessionmaker(bind=engine)
 

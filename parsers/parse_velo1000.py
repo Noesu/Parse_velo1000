@@ -10,6 +10,7 @@ import time
 from typing import Optional
 
 from db.models import Product
+from config import BASE_URL, CATALOG_PREFIX
 
 
 class Coordinator:
@@ -18,8 +19,8 @@ class Coordinator:
         self.category_parser = CategoryParser(driver)
         self.db_session = db_session
 
-    def process_all_categories(self, url: str) -> None:
-        self.driver.get(url)
+    def process_all_categories(self) -> None:
+        self.driver.get(BASE_URL+CATALOG_PREFIX)
         categories = self._read_categories()
 
         for category_name, category_url in categories.items():
@@ -32,36 +33,29 @@ class Coordinator:
     def _read_categories(self) -> dict[str, str]:
         try:
             print(f'({time.strftime("%H:%M:%S")}) Reading categories... ')
-            category_list = WebDriverWait(self.driver, timeout=3).until(
+            WebDriverWait(self.driver, timeout=3).until(
                 EC.presence_of_all_elements_located((By.CLASS_NAME, "catalog__block"))
             )
-            print(f'({time.strftime("%H:%M:%S")}) Found {len(category_list)} categories. ')
+
             categories = {}
-            for category in category_list:
-                try:
-                    category_link = category.get_attribute("href")
-                    if not category_link:
-                        continue
-                    category_name = category.find_element(By.CLASS_NAME, "catalog__label").text.strip()
-                    if category_name and category_link:
-                        categories[category_name] = category_link
-                except Exception as e:
-                    error_context = {
-                        'category': category,
-                        'link': category_link or 'n/a',
-                        'name': category_name or 'n/a',
-                        'error': str(e)
-                    }
-                    print(f'({time.strftime("%H:%M:%S")}) Error parsing category {error_context}')
+            for block in BeautifulSoup(self.driver.page_source, 'lxml').select('.catalog__block'):
+                if category_label_tag := block.select_one('.catalog__label'):
+                    category_name = category_label_tag.get_text(strip=True)
+                else:
                     continue
-            print(f'({time.strftime("%H:%M:%S")}) {len(categories)} categories have links. ')
+                if category_link := block['href']:
+                    categories[category_name] = category_link
+                else:
+                    continue
+
+            print(f'({time.strftime("%H:%M:%S")}) Found {len(categories)} categories.')
             return categories
         except Exception as e:
-            print(f'({time.strftime("%H:%M:%S")}) Error loading category list')
+            print(f'({time.strftime("%H:%M:%S")}) Error loading category list: {e}')
             return {}
 
-    def _process_single_category(self, category_name: str, url: str) -> None:
-        self.category_parser.open_category_page(category_name, url)
+    def _process_single_category(self, category_name: str, category_url: str) -> None:
+        self.category_parser.open_category_page(category_name, BASE_URL+category_url)
 
         if self.category_parser.pagination_exists():
             self.category_parser.expand_category()
@@ -86,7 +80,9 @@ class Coordinator:
                 price_kopecks=product_data['price'],
             )
             self.db_session.add(product)
+        number_of_products = len(self.db_session.new)
         self.db_session.commit()
+        print(f'({time.strftime("%H:%M:%S")}) {number_of_products} items added to database in category {category_name}')
 
 
 class CategoryParser:
@@ -136,7 +132,10 @@ class CategoryParser:
         print(f'({time.strftime("%H:%M:%S")}) Parsing category {name}...')
         try:
             print(f'({time.strftime("%H:%M:%S")}) Start loading products')
-            page_html = self.product_parser.get_page_html()
+            WebDriverWait(self.driver, 60).until(
+                EC.presence_of_all_elements_located((By.CLASS_NAME, "product__block"))
+            )
+            page_html = self.driver.page_source
             return self._process_products(page_html)
         except TimeoutException:
             print(f"({time.strftime("%H:%M:%S")}) Timeout loading products in {name}")
@@ -158,7 +157,6 @@ class ProductParser:
 
     @staticmethod
     def _extract_product_name(product_block: bs4.Tag) -> str:
-        # print(f'Product_tag: {product_tag}')
         if product_label := product_block.select_one('.product__label'):
             return product_label.get_text(strip=True)
         print(f"({time.strftime("%H:%M:%S")}) Product name element not found")
@@ -185,15 +183,7 @@ class ProductParser:
                 return None
         return None
 
-    def get_page_html(self) -> str:
-        WebDriverWait(self.driver, 60).until(
-            EC.presence_of_all_elements_located((By.CLASS_NAME, "product__block"))
-        )
-        return self.driver.page_source
-
     def parse_product(self, product_block: bs4.Tag) -> Optional[dict]:
-        # print(product_tag)
-        # raise SystemExit
         product_data_dict = {}
         try:
             product_data_dict["name"] = self._extract_product_name(product_block)

@@ -1,6 +1,7 @@
 from selenium.webdriver.chrome.options import Options
 
-URL = "https://velo1000.ru/catalog/"
+BASE_URL = "https://velo1000.ru"
+CATALOG_PREFIX = "/catalog"
 
 def configure_chrome_options() -> Options:
     options = Options()
