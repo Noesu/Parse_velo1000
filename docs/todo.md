@@ -1,13 +1,6 @@
 # TODO List  
 
 ## Medium Priority  
-- [ ] Improve parsing performance:
-  - Option 1: Implement multithreading  
-  - Option 2: Implement asynchronous approach  
-  - Option 3: Replace Selenium with BeautifulSoup where possible  
+- [ ] Add tests  
 
-## Low Priority  
-- [ ] Add progress visualization (progress bars)  
-- [ ] Implement proper logging system to replace print() statements  
-
-*Last updated: 2025-05-21*   
+*Last updated: 2025-05-23*   

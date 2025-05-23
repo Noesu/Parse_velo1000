@@ -1,16 +1,18 @@
 import bs4
 from bs4 import BeautifulSoup
+import logging
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.wait import WebDriverWait
 from sqlalchemy.orm import Session
-import time
 from typing import Optional
 
 from db.models import Product
 from config import BASE_URL, CATALOG_PREFIX
+
+logger = logging.getLogger(__name__)
 
 
 class Coordinator:
@@ -32,7 +34,7 @@ class Coordinator:
 
     def _read_categories(self) -> dict[str, str]:
         try:
-            print(f'({time.strftime("%H:%M:%S")}) Reading categories... ')
+            logger.info('Reading categories...')
             WebDriverWait(self.driver, timeout=3).until(
                 EC.presence_of_all_elements_located((By.CLASS_NAME, "catalog__block"))
             )
@@ -48,10 +50,10 @@ class Coordinator:
                 else:
                     continue
 
-            print(f'({time.strftime("%H:%M:%S")}) Found {len(categories)} categories.')
+            logger.info(f'Found {len(categories)} categories.')
             return categories
         except Exception as e:
-            print(f'({time.strftime("%H:%M:%S")}) Error loading category list: {e}')
+            logger.error(f'Error loading category list: {str(e)}')
             return {}
 
     def _process_single_category(self, category_name: str, category_url: str) -> None:
@@ -66,7 +68,7 @@ class Coordinator:
 
     def _handle_category_error(self, name: str, url: str, error: Exception) -> None:
         error_msg = f"Error processing category '{name}' ({url}): {str(error)}"
-        print(f'({time.strftime("%H:%M:%S")}) {error_msg}')
+        logger.error(error_msg)
         self.db_session.rollback()
 
     def _save_products_to_db(self, category_name: str, products_data: list[dict]) -> None:
@@ -82,7 +84,7 @@ class Coordinator:
             self.db_session.add(product)
         number_of_products = len(self.db_session.new)
         self.db_session.commit()
-        print(f'({time.strftime("%H:%M:%S")}) {number_of_products} items added to database in category {category_name}')
+        logger.info(f'{number_of_products} items added to database in category {category_name}')
 
 
 class CategoryParser:
@@ -91,16 +93,16 @@ class CategoryParser:
         self.product_parser = ProductParser(self.driver)
 
     def open_category_page(self, name: str, url: str) -> None:
-        print(f'({time.strftime("%H:%M:%S")}) Opening category {name}...')
+        logger.info(f'Opening category {name}...')
         try:
             self.driver.get(url)
             WebDriverWait(self.driver, timeout=10).until(EC.url_to_be(url))
-            print(f'({time.strftime("%H:%M:%S")}) Category {name} opened')
+            logger.info(f'Category {name} opened')
             WebDriverWait(self.driver, timeout=10).until(
                 EC.presence_of_element_located((By.CLASS_NAME, "product__block"))
             )
         except TimeoutException:
-            print(f'({time.strftime("%H:%M:%S")}) Timeout while opening page: {url}')
+            logger.error(f'Timeout while opening page: {url}')
 
     def pagination_exists(self) -> bool:
         try:
@@ -110,11 +112,11 @@ class CategoryParser:
             return True
 
         except TimeoutException:
-            print(f'({time.strftime("%H:%M:%S")}) Pagination not detected')
+            logger.info('Pagination not detected')
             return False
 
     def expand_category(self) -> None:
-        print(f'({time.strftime("%H:%M:%S")}) Pagination detected. Expanding...')
+        logger.warning(f'Pagination detected. Expanding...')
         try:
             count_element = WebDriverWait(self.driver, 3).until(
                 EC.element_to_be_clickable((By.CSS_SELECTOR, ".top__items-count[data-count='999']"))
@@ -123,22 +125,22 @@ class CategoryParser:
             WebDriverWait(self.driver, 15).until(
                 EC.invisibility_of_element_located((By.CLASS_NAME, "pagination"))
             )
-            print(f'({time.strftime("%H:%M:%S")}) Category expanded successfully.')
+            logger.info(f'Category expanded successfully.')
         except TimeoutException as e:
-            print(f'({time.strftime("%H:%M:%S")}) Error during expanding category: {str(e)}')
+            logger.error(f'Error during expanding category: {str(e)}')
 
 
     def parse_category(self, name: str) -> list[dict]:
-        print(f'({time.strftime("%H:%M:%S")}) Parsing category {name}...')
+        logger.info(f'Parsing category {name}...')
         try:
-            print(f'({time.strftime("%H:%M:%S")}) Start loading products')
+            logger.info('Start loading products')
             WebDriverWait(self.driver, 60).until(
                 EC.presence_of_all_elements_located((By.CLASS_NAME, "product__block"))
             )
             page_html = self.driver.page_source
             return self._process_products(page_html)
         except TimeoutException:
-            print(f"({time.strftime("%H:%M:%S")}) Timeout loading products in {name}")
+            logger.error(f'Timeout loading products in {name}')
             return []
 
     def _process_products(self, page_html: str) -> list[dict]:
@@ -159,7 +161,7 @@ class ProductParser:
     def _extract_product_name(product_block: bs4.Tag) -> str:
         if product_label := product_block.select_one('.product__label'):
             return product_label.get_text(strip=True)
-        print(f"({time.strftime("%H:%M:%S")}) Product name element not found")
+        logger.error('Product name element not found')
         return ""
 
     def _extract_product_price(self, product_block: bs4.Tag) -> Optional[int]:
@@ -169,7 +171,7 @@ class ProductParser:
                     return self._text_price_to_kopecks(child.get_text(strip=True))
             if price_text := product_price.get_text(strip=True):
                 return self._text_price_to_kopecks(price_text)
-        print(f"({time.strftime("%H:%M:%S")}) Product price element not found")
+        logger.error('Product price element not found')
         return None
 
     @staticmethod
@@ -179,7 +181,7 @@ class ProductParser:
                 price_kopecks = int(digits) * 100
                 return price_kopecks
             except ValueError as e:
-                print(f'({time.strftime("%H:%M:%S")}) Error converting price {price_text}: {e}')
+                logger.error(f'Error converting price {price_text}: {str(e)}')
                 return None
         return None
 
@@ -192,6 +194,6 @@ class ProductParser:
             product_data_dict["price"] = self._extract_product_price(product_block)
             return product_data_dict
         except Exception as e:
-            print(f"({time.strftime("%H:%M:%S")}) Failed to parse product: {str(e)}")
+            logger.error(f'Failed to parse product: {str(e)}')
             return {}
 

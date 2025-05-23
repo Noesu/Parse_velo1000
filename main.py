@@ -1,12 +1,15 @@
+import logging
 from selenium import webdriver
-import time
 
 from config import configure_chrome_options
 from utils import init_db
+from utils.logger import setup_logging
 from parsers import Coordinator
 
 def main() -> None:
-    print(f'({time.strftime("%H:%M:%S")}) Program started!')
+    setup_logging()
+    logger = logging.getLogger(__name__)
+    logger.info('Program started!')
     chrome_options = configure_chrome_options()
     session_factory = init_db()
 
